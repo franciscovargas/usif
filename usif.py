@@ -1,3 +1,4 @@
+
 import re
 import os
 import numpy as np
@@ -18,7 +19,7 @@ class word2prob(object):
 		"""Initialize a word2prob object.
 
 		Args:
-			count_fn: word count file name (one word per line) 
+			count_fn: word count file name (one word per line)
 		"""
 		self.prob = {}
 		total = 0.0
@@ -50,26 +51,26 @@ class word2prob(object):
 
 class word2vec(object):
 	"""Map words to their embeddings."""
-        def __init__(self, vector_fn):
+	def __init__(self, vector_fn):
 		"""Initialize a word2vec object.
 
 		Args:
 			vector_fn: embedding file name (one word per line)
 		"""
 		self.vectors = {}
-    
+
 		for line in open(vector_fn):
-        		line = line.split()
+			line = line.split()
 
 			# skip first line if needed
 			if len(line) == 2:
 				continue
 
-        		word = line[0]
-        		embedding = np.array([float(val) for val in line[1:]])
-        		self.vectors[word] = embedding
+			word = line[0]
+			embedding = np.array([float(val) for val in line[1:]])
+			self.vectors[word] = embedding
 
-        def __getitem__(self, w):
+	def __getitem__(self, w):
 		return self.vectors[w]
 
 	def __contains__(self, w):
@@ -97,20 +98,21 @@ class uSIF(object):
 
 		if not (isinstance(n, int) and n > 0):
 			raise TypeError("n should be a positive integer")
-	
+
+		self.prob = prob
 		vocab_size = float(len(prob))
 		threshold = 1 - (1 - 1/vocab_size) ** n
 		alpha = len([ w for w in prob.vocab() if prob[w] > threshold ]) / vocab_size
+
 		Z = 0.5 * vocab_size
 		self.a = (1 - alpha)/(alpha * Z)
-
-		self.weight = lambda word: (self.a / (0.5 * self.a + prob[word])) 
+		self.weight = lambda word: (self.a / (0.5 * self.a + prob[word]))
 
 	def _to_vec(self, sentence):
 		"""Vectorize a given sentence.
-		
+
 		Args:
-			sentence: a sentence (string) 
+			sentence: a sentence (string)
 		"""
 		# regex for non-punctuation
 		not_punc = re.compile('.*[A-Za-z0-9].*')
@@ -120,19 +122,20 @@ class uSIF(object):
 			t = t.lower().strip("';.:()").strip('"')
 			t = 'not' if t == "n't" else t
 			return t
-		
+
 		tokens = map(preprocess, filter(lambda t: not_punc.match(t), nltk.word_tokenize(sentence)))
+		# tokens = nltk.word_tokenize(sentence)
 		tokens = reduce(lambda a,b: a + b, [[]] + map(lambda t: re.split(r'[-]', t), tokens))
 		tokens = filter(lambda t: t in self.vec, tokens)
 
-		# if no parseable tokens, return a vector of a's        
+		# if no parseable tokens, return a vector of a's
 		if tokens == []:
 			return np.zeros(300) + self.a
 		else:
 			v_t = np.array(map(lambda (i,t): self.vec[t], enumerate(tokens)))
-			v_t = v_t * (1.0 / np.linalg.norm(v_t, axis=0))
+			# v_t = v_t * (1.0 / np.linalg.norm(v_t, axis=0))
 			v_t = np.array(map(lambda (i,t): self.weight(t) * v_t[i,:], enumerate(tokens)))
-			return np.mean(v_t, axis=0) 
+			return np.mean(v_t, axis=0)
 
 	def embed(self, sentences):
 		"""Embed a list of sentences.
@@ -140,22 +143,23 @@ class uSIF(object):
 		Args:
 			sentences: a list of sentences (strings)
 		"""
-		vectors = map(self._to_vec, sentences)
+		vectors = [ self._to_vec(s) for s in sentences ]
+
 		if self.m == 0:
 			return vectors
 
 		proj = lambda a, b: a.dot(b.transpose()) * b
-		svd = TruncatedSVD(n_components=self.m, random_state=0).fit(vectors)	
-	
+		svd = TruncatedSVD(n_components=self.m, random_state=0).fit(vectors)
+
 		# remove the weighted projections on the common discourse vectors
 		for i in range(self.m):
 			lambda_i = (svd.singular_values_[i] ** 2) / (svd.singular_values_ ** 2).sum()
 			pc = svd.components_[i]
-			vectors = map(lambda v_s: v_s - lambda_i * proj(v_s, pc), vectors)
+			vectors = [ v_s - lambda_i * proj(v_s, pc) for v_s in vectors ]
 
 		return vectors
 
-	
+
 def test_STS(model):
 	"""Test the performance on the STS tasks and print out the results.
 
@@ -169,7 +173,7 @@ def test_STS(model):
 
 	Args:
 		model: a uSIF object
-	""" 
+	"""
 	test_dirs = [
 		'STS/STS-data/STS2012-gold/',
 		'STS/STS-data/STS2013-gold/',
@@ -182,18 +186,18 @@ def test_STS(model):
 	for td in test_dirs:
 		test_fns = filter(lambda fn: '.input.' in fn and fn.endswith('txt'), os.listdir(td))
 		scores = []
-	
+
 		for fn in test_fns:
 			sentences = re.split(r'\t|\n', open(td + fn).read().strip())
 			vectors = model.embed(sentences)
 			y_hat = [ 1 - cosine(vectors[i], vectors[i+1]) for i in range(0, len(vectors), 2) ]
-			y = map(float, open(td + fn.replace('input', 'gs')).read().strip().split('\n'))
+			y = list(map(float, open(td + fn.replace('input', 'gs')).read().strip().split('\n')))
 
 			score = pearsonr(y, y_hat)[0]
 			scores.append(score)
 
 			print fn, "\t", score
-		
+
 		print td, np.mean(scores), "\n"
 
 
@@ -203,3 +207,37 @@ def get_paranmt_usif():
 	vec = word2vec('vectors/czeng.txt')
 	return uSIF(vec, prob)
 
+def get_paranmt_usif(m=5):
+	"""
+    Return a uSIF embedding model that used pre-trained ParaNMT word vectors.
+
+		m: number of common discourse vectors (in practice, no more than 5 needed)
+	"""
+	prob = word2prob('enwiki_vocab_min200.txt')
+	vec = word2vec('glove.840B.300d.txt')
+	return uSIF(vec, prob, m=m)
+
+def reproduce_usif_paper():
+	"""
+		Reproduces results of paper with TODO: glove
+	"""
+	usif = get_paranmt_usif(m=5)
+	test_STS(usif)
+	return usif
+
+def reproduce_sif_fair(usif):
+	"""
+		Reproduces results of paper with TODO: glove
+	"""
+	usif.m = 1 # override to do PCA 1 as in Arora et al. 2016
+	usif.a = 1e-3 # From Arora et al. 2016
+	usif.weight  = lambda word: (usif.a / (usif.a + usif.prob[word]))
+	test_STS(usif)
+
+
+if __name__ == '__main__':
+
+	print(">>>>>>>>>>  uSIF Results reproduced  >>>>>>>>>>>>")
+	usif = reproduce_usif_paper()
+	print(">>>>>>>>>>  SIF Results under same framework  >>>>>>>>>>>>")
+	reproduce_sif_fair(usif)
