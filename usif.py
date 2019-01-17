@@ -122,9 +122,9 @@ class uSIF(object):
 			t = 'not' if t == "n't" else t
 			return t
 
-		tokens = map(preprocess, filter(lambda t: not_punc.match(t), nltk.word_tokenize(sentence)))
-		# tokens = nltk.word_tokenize(sentence)
-		tokens = reduce(lambda a,b: a + b, [[]] + map(lambda t: re.split(r'[-]', t), tokens))
+		# tokens = map(preprocess, filter(lambda t: not_punc.match(t), nltk.word_tokenize(sentence)))
+		tokens = nltk.word_tokenize(sentence)
+		# tokens = reduce(lambda a,b: a + b, [[]] + map(lambda t: re.split(r'[-]', t), tokens))
 		tokens = filter(lambda t: t in self.vec, tokens)
 
 		# if no parseable tokens, return a vector of a's
